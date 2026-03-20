@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Explorador de Rutas</title>
+
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=DM+Mono:wght@300;400;500&family=Crimson+Pro:ital,wght@0,300;0,400;1,300&display=swap" rel="stylesheet"/>
+
+  <style>
+    /* ── Variables ─────────────────────────────── */
+    :root {
+      --ink:        #1a1209;
+      --parchment:  #f5efe0;
+      --aged:       #e8ddc8;
+      --sepia:      #c4a882;
+      --rust:       #b5451b;
+      --copper:     #d4792a;
+      --forest:     #2d5016;
+      --ocean:      #1b4060;
+      --gold:       #c9952a;
+      --panel-w:    360px;
+      --radius:     4px;
+    }
+
+    /* ── Reset & base ──────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Crimson Pro', Georgia, serif;
+      background: var(--ink);
+      color: var(--ink);
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+    }
+
+    /* ── Left panel ────────────────────────────── */
+    #panel {
+      width: var(--panel-w);
+      flex-shrink: 0;
+      background: var(--parchment);
+      display: flex;
+      flex-direction: column;
+      padding: 0;
+      position: relative;
+      z-index: 1000;
+      box-shadow: 4px 0 24px rgba(0,0,0,.5);
+      overflow-y: auto;
+    }
+
+    /* decorative top band */
+    .panel-header {
+      background: var(--ink);
+      padding: 28px 28px 22px;
+      position: relative;
+      overflow: hidden;
+    }
+    .panel-header::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: repeating-linear-gradient(
+        45deg,
+        transparent,
+        transparent 4px,
+        rgba(201,149,42,.07) 4px,
+        rgba(201,149,42,.07) 8px
+      );
+    }
+    .panel-header .badge {
+      font-family: 'DM Mono', monospace;
+      font-size: 9px;
+      letter-spacing: 4px;
+      color: var(--gold);
+      text-transform: uppercase;
+      margin-bottom: 10px;
+      opacity: .85;
+    }
+    .panel-header h1 {
+      font-family: 'Playfair Display', serif;
+      font-size: 28px;
+      font-weight: 900;
+      color: var(--parchment);
+      line-height: 1.1;
+    }
+    .panel-header h1 span { color: var(--gold); }
+    .panel-header p {
+      font-family: 'Crimson Pro', serif;
+      font-style: italic;
+      font-size: 13.5px;
+      color: var(--sepia);
+      margin-top: 7px;
+      line-height: 1.5;
+    }
+
+    /* decorative compass rose */
+    .compass {
+      position: absolute;
+      right: 20px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 52px;
+      height: 52px;
+      opacity: .35;
+    }
+
+    /* ── Form area ─────────────────────────────── */
+    .form-area {
+      padding: 26px 28px 20px;
+      border-bottom: 1px solid var(--aged);
+    }
+
+    .field-group { margin-bottom: 18px; }
+
+    label {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-family: 'DM Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 2.5px;
+      text-transform: uppercase;
+      color: var(--rust);
+      margin-bottom: 7px;
+    }
+    label svg { flex-shrink: 0; }
+
+    .autocomplete-wrapper { position: relative; }
+
+    input[type="text"] {
+      width: 100%;
+      background: var(--aged);
+      border: 1.5px solid var(--sepia);
+      border-radius: var(--radius);
+      padding: 10px 14px;
+      font-family: 'Playfair Display', serif;
+      font-size: 15px;
+      color: var(--ink);
+      outline: none;
+      transition: border-color .2s, box-shadow .2s;
+    }
+    input[type="text"]:focus {
+      border-color: var(--rust);
+      box-shadow: 0 0 0 3px rgba(181,69,27,.12);
+    }
+    input[type="text"]::placeholder { color: var(--sepia); font-style: italic; font-size: 14px; }
+
+    .suggestions {
+      position: absolute;
+      top: calc(100% + 2px);
+      left: 0; right: 0;
+      background: var(--parchment);
+      border: 1.5px solid var(--sepia);
+      border-radius: var(--radius);
+      max-height: 180px;
+      overflow-y: auto;
+      z-index: 9999;
+      box-shadow: 0 8px 24px rgba(0,0,0,.18);
+      display: none;
+    }
+    .suggestions.open { display: block; }
+    .suggestion-item {
+      padding: 9px 14px;
+      font-family: 'Playfair Display', serif;
+      font-size: 14px;
+      cursor: pointer;
+      border-bottom: 1px solid var(--aged);
+      transition: background .15s;
+    }
+    .suggestion-item:last-child { border-bottom: none; }
+    .suggestion-item:hover, .suggestion-item.active { background: var(--aged); color: var(--rust); }
+
+    /* swap button */
+    .swap-row {
+      display: flex;
+      justify-content: center;
+      margin: -6px 0 14px;
+    }
+    .swap-btn {
+      background: var(--ink);
+      border: none;
+      border-radius: 50%;
+      width: 32px; height: 32px;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: transform .25s, background .2s;
+      color: var(--gold);
+    }
+    .swap-btn:hover { transform: rotate(180deg); background: var(--rust); }
+
+    /* submit */
+    #submit-btn {
+      width: 100%;
+      background: var(--rust);
+      color: var(--parchment);
+      border: none;
+      border-radius: var(--radius);
+      padding: 13px;
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: background .2s, transform .1s, box-shadow .2s;
+      box-shadow: 0 4px 14px rgba(181,69,27,.35);
+      position: relative;
+      overflow: hidden;
+    }
+    #submit-btn:hover { background: #9a3614; box-shadow: 0 6px 20px rgba(181,69,27,.5); }
+    #submit-btn:active { transform: scale(.98); }
+    #submit-btn.loading { pointer-events: none; opacity: .75; }
+    #submit-btn .btn-text { transition: opacity .2s; }
+    #submit-btn .spinner {
+      display: none;
+      width: 16px; height: 16px;
+      border: 2px solid rgba(245,239,224,.4);
+      border-top-color: var(--parchment);
+      border-radius: 50%;
+      animation: spin .6s linear infinite;
+      position: absolute; top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+    }
+    #submit-btn.loading .btn-text { opacity: 0; }
+    #submit-btn.loading .spinner { display: block; }
+
+    @keyframes spin { to { transform: translate(-50%, -50%) rotate(360deg); } }
+
+    /* ── Error ─────────────────────────────────── */
+    #error-box {
+      margin: 14px 28px 0;
+      background: #fff0eb;
+      border-left: 3px solid var(--rust);
+      border-radius: var(--radius);
+      padding: 10px 14px;
+      font-size: 14px;
+      color: var(--rust);
+      display: none;
+      animation: fadeSlide .25s ease;
+    }
+
+    /* ── Results card ──────────────────────────── */
+    #result-card {
+      margin: 18px 28px;
+      background: var(--aged);
+      border-radius: var(--radius);
+      border: 1px solid var(--sepia);
+      overflow: hidden;
+      display: none;
+      animation: fadeSlide .3s ease;
+    }
+
+    @keyframes fadeSlide {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .result-title {
+      background: var(--ink);
+      padding: 10px 16px;
+      font-family: 'DM Mono', monospace;
+      font-size: 9px;
+      letter-spacing: 3px;
+      color: var(--gold);
+      text-transform: uppercase;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1px;
+      background: var(--sepia);
+    }
+    .stat-cell {
+      background: var(--aged);
+      padding: 14px 16px;
+      text-align: center;
+    }
+    .stat-value {
+      font-family: 'Playfair Display', serif;
+      font-size: 26px;
+      font-weight: 700;
+      color: var(--rust);
+      line-height: 1;
+    }
+    .stat-unit {
+      font-family: 'DM Mono', monospace;
+      font-size: 9px;
+      letter-spacing: 2px;
+      color: var(--sepia);
+      margin-top: 3px;
+    }
+
+    /* route path list */
+    #path-list {
+      padding: 14px 16px;
+    }
+    .path-label {
+      font-family: 'DM Mono', monospace;
+      font-size: 9px;
+      letter-spacing: 2.5px;
+      text-transform: uppercase;
+      color: var(--sepia);
+      margin-bottom: 10px;
+    }
+    .path-stop {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      margin-bottom: 8px;
+      font-size: 14.5px;
+    }
+    .stop-icon {
+      flex-shrink: 0;
+      width: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .stop-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      border: 2px solid var(--rust);
+      background: var(--parchment);
+      margin-top: 3px;
+    }
+    .stop-dot.first { background: var(--rust); }
+    .stop-dot.last  { background: var(--forest); border-color: var(--forest); }
+    .stop-line {
+      width: 2px;
+      background: var(--sepia);
+      flex: 1;
+      min-height: 16px;
+      margin: 2px 0;
+    }
+    .stop-name { font-family: 'Playfair Display', serif; color: var(--ink); }
+    .stop-tag {
+      font-family: 'DM Mono', monospace;
+      font-size: 9px;
+      letter-spacing: 1.5px;
+      color: var(--copper);
+      margin-top: 2px;
+    }
+
+    /* ── Map ───────────────────────────────────── */
+    #map {
+      flex: 1;
+      height: 100vh;
+    }
+
+    /* Custom Leaflet popup */
+    .leaflet-popup-content-wrapper {
+      background: var(--ink) !important;
+      color: var(--parchment) !important;
+      border-radius: 4px !important;
+      border: 1px solid var(--gold) !important;
+      box-shadow: 0 8px 24px rgba(0,0,0,.4) !important;
+      font-family: 'Playfair Display', serif !important;
+    }
+    .leaflet-popup-tip { background: var(--ink) !important; }
+    .leaflet-popup-content { font-size: 14px !important; line-height: 1.5 !important; }
+    .popup-city { font-weight: 700; color: var(--gold); }
+    .popup-type { font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 2px; color: var(--sepia); }
+
+    /* scrollbar */
+    #panel::-webkit-scrollbar { width: 5px; }
+    #panel::-webkit-scrollbar-track { background: var(--aged); }
+    #panel::-webkit-scrollbar-thumb { background: var(--sepia); border-radius: 4px; }
+
+    /* ── Responsive ────────────────────────────── */
+    @media (max-width: 640px) {
+      :root { --panel-w: 100vw; }
+      body { flex-direction: column; }
+      #panel { width: 100%; height: auto; max-height: 55vh; }
+      #map   { height: 45vh; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ════ LEFT PANEL ════ -->
+<aside id="panel">
+
+  <!-- Header -->
+  <div class="panel-header">
+    <div class="badge">⬡ Sistema de Navegación</div>
+    <h1>Explorador<br/>de <span>Rutas</span></h1>
+    <p>Calcula la ruta óptima<br/>entre ciudades de México.</p>
+
+    <!-- SVG Compass Rose -->
+    <svg class="compass" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="50" cy="50" r="46" stroke="#c9952a" stroke-width="1.5"/>
+      <circle cx="50" cy="50" r="38" stroke="#c9952a" stroke-width=".6" stroke-dasharray="3 3"/>
+      <polygon points="50,6 54,50 50,42 46,50" fill="#c9952a"/>
+      <polygon points="50,94 46,50 50,58 54,50" fill="#c9952a" opacity=".5"/>
+      <polygon points="6,50 50,46 42,50 50,54" fill="#c9952a" opacity=".5"/>
+      <polygon points="94,50 50,54 58,50 50,46" fill="#c9952a" opacity=".5"/>
+      <circle cx="50" cy="50" r="5" fill="#c9952a"/>
+      <circle cx="50" cy="50" r="2.5" fill="#1a1209"/>
+      <text x="50" y="3" fill="#c9952a" font-size="8" text-anchor="middle" font-family="serif">N</text>
+    </svg>
+  </div>
+
+  <!-- Form -->
+  <div class="form-area">
+    <div class="field-group">
+      <label>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <circle cx="12" cy="10" r="3"/><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/>
+        </svg>
+        Ciudad de Origen
+      </label>
+      <div class="autocomplete-wrapper">
+        <input type="text" id="origin-input" placeholder="Ej. Ciudad de México" autocomplete="off"/>
+        <div class="suggestions" id="origin-suggestions"></div>
+      </div>
+    </div>
+
+    <div class="swap-row">
+      <button class="swap-btn" id="swap-btn" title="Intercambiar ciudades">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <path d="M7 16V4m0 0L3 8m4-4l4 4M17 8v12m0 0l4-4m-4 4l-4-4"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="field-group">
+      <label>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <path d="M3 12h18M3 6h18M3 18h18"/>
+        </svg>
+        Ciudad de Destino
+      </label>
+      <div class="autocomplete-wrapper">
+        <input type="text" id="dest-input" placeholder="Ej. Cancún" autocomplete="off"/>
+        <div class="suggestions" id="dest-suggestions"></div>
+      </div>
+    </div>
+
+    <button id="submit-btn">
+      <span class="btn-text">Calcular Ruta</span>
+      <div class="spinner"></div>
+    </button>
+  </div>
+
+  <!-- Error -->
+  <div id="error-box"></div>
+
+  <!-- Result card -->
+  <div id="result-card">
+    <div class="result-title">⬡ Ruta Calculada</div>
+    <div class="stats-grid">
+      <div class="stat-cell">
+        <div class="stat-value" id="stat-dist">—</div>
+        <div class="stat-unit">kilómetros</div>
+      </div>
+      <div class="stat-cell">
+        <div class="stat-value" id="stat-time">—</div>
+        <div class="stat-unit">horas aprox.</div>
+      </div>
+    </div>
+    <div id="path-list">
+      <div class="path-label">Itinerario de paradas</div>
+      <div id="stops-container"></div>
+    </div>
+  </div>
+
+</aside>
+
+<!-- ════ MAP ════ -->
+<div id="map"></div>
+
+<!-- Leaflet JS -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+// ─── Map init ────────────────────────────────────────────────────────────────
+const map = L.map('map', {
+  center: [23.6, -102.5],
+  zoom: 5,
+  zoomControl: false
+});
+
+// Tile layer with a vintage/earthy style
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  attribution: '&copy; OpenStreetMap &copy; CARTO',
+  subdomains: 'abcd',
+  maxZoom: 19
+}).addTo(map);
+
+L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+// ─── State ───────────────────────────────────────────────────────────────────
+let citiesData = {};
+let routeLayer = null;
+let markersLayer = L.layerGroup().addTo(map);
+
+// ─── Custom markers ──────────────────────────────────────────────────────────
+function makeIcon(type) {
+  const colors = { origin: '#b5451b', destination: '#2d5016', stop: '#c9952a' };
+  const c = colors[type] || colors.stop;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="36" viewBox="0 0 28 36">
+    <path d="M14 0C6.27 0 0 6.27 0 14c0 9.75 14 22 14 22S28 23.75 28 14C28 6.27 21.73 0 14 0z" fill="${c}"/>
+    <circle cx="14" cy="14" r="6" fill="white" opacity=".9"/>
+  </svg>`;
+  return L.divIcon({
+    html: svg, className: '', iconSize: [28, 36], iconAnchor: [14, 36], popupAnchor: [0, -36]
+  });
+}
+
+// ─── Fetch cities ─────────────────────────────────────────────────────────────
+async function loadCities() {
+  try {
+    const res = await fetch('/api/cities');
+    citiesData = await res.json();
+  } catch(e) { console.error('No se pudieron cargar las ciudades.'); }
+}
+loadCities();
+
+// ─── Autocomplete ─────────────────────────────────────────────────────────────
+function setupAutocomplete(inputEl, suggestionsEl, onSelect) {
+  let activeIdx = -1;
+
+  inputEl.addEventListener('input', () => {
+    const q = inputEl.value.toLowerCase().trim();
+    suggestionsEl.innerHTML = '';
+    activeIdx = -1;
+    if (!q) { suggestionsEl.classList.remove('open'); return; }
+
+    const matches = Object.keys(citiesData).filter(c => c.toLowerCase().includes(q)).slice(0, 8);
+    if (!matches.length) { suggestionsEl.classList.remove('open'); return; }
+
+    matches.forEach((city, i) => {
+      const item = document.createElement('div');
+      item.className = 'suggestion-item';
+      item.textContent = city;
+      item.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        inputEl.value = city;
+        suggestionsEl.classList.remove('open');
+        onSelect && onSelect(city);
+      });
+      suggestionsEl.appendChild(item);
+    });
+    suggestionsEl.classList.add('open');
+  });
+
+  inputEl.addEventListener('keydown', (e) => {
+    const items = suggestionsEl.querySelectorAll('.suggestion-item');
+    if (e.key === 'ArrowDown') { activeIdx = Math.min(activeIdx+1, items.length-1); }
+    else if (e.key === 'ArrowUp') { activeIdx = Math.max(activeIdx-1, 0); }
+    else if (e.key === 'Enter') {
+      if (activeIdx >= 0) { items[activeIdx].dispatchEvent(new MouseEvent('mousedown')); }
+      else { suggestionsEl.classList.remove('open'); }
+      return;
+    } else if (e.key === 'Escape') { suggestionsEl.classList.remove('open'); return; }
+    items.forEach((it, i) => it.classList.toggle('active', i === activeIdx));
+  });
+
+  inputEl.addEventListener('blur', () => setTimeout(() => suggestionsEl.classList.remove('open'), 150));
+}
+
+const originInput = document.getElementById('origin-input');
+const destInput   = document.getElementById('dest-input');
+setupAutocomplete(originInput, document.getElementById('origin-suggestions'));
+setupAutocomplete(destInput,   document.getElementById('dest-suggestions'));
+
+// ─── Swap button ──────────────────────────────────────────────────────────────
+document.getElementById('swap-btn').addEventListener('click', () => {
+  [originInput.value, destInput.value] = [destInput.value, originInput.value];
+});
+
+// ─── Draw route ───────────────────────────────────────────────────────────────
+function drawRoute(data) {
+  // clear previous
+  if (routeLayer) { map.removeLayer(routeLayer); routeLayer = null; }
+  markersLayer.clearLayers();
+
+  const coords = data.waypoints.map(wp => [wp.lat, wp.lng]);
+
+  // Animated polyline
+  routeLayer = L.polyline(coords, {
+    color: '#c9952a',
+    weight: 3.5,
+    opacity: .9,
+    dashArray: '8 6',
+    lineJoin: 'round'
+  }).addTo(map);
+
+  // solid underline
+  L.polyline(coords, {
+    color: '#b5451b',
+    weight: 6,
+    opacity: .25,
+    lineJoin: 'round'
+  }).addTo(markersLayer);
+
+  // Markers
+  data.waypoints.forEach((wp, i) => {
+    const isFirst = i === 0;
+    const isLast  = i === data.waypoints.length - 1;
+    const type    = isFirst ? 'origin' : isLast ? 'destination' : 'stop';
+    const tag     = isFirst ? 'Origen' : isLast ? 'Destino' : 'Parada';
+
+    const marker = L.marker([wp.lat, wp.lng], { icon: makeIcon(type) })
+      .bindPopup(`<div class="popup-city">${wp.city}</div><div class="popup-type">${tag}</div>`)
+      .addTo(markersLayer);
+
+    if (isFirst || isLast) marker.openPopup();
+  });
+
+  // Fit map
+  map.fitBounds(routeLayer.getBounds(), { padding: [50, 50] });
+}
+
+// ─── Render result card ───────────────────────────────────────────────────────
+function renderCard(data) {
+  document.getElementById('stat-dist').textContent = data.total_distance_km.toLocaleString();
+  document.getElementById('stat-time').textContent = data.total_time_hours;
+
+  const container = document.getElementById('stops-container');
+  container.innerHTML = '';
+
+  data.path.forEach((city, i) => {
+    const isFirst = i === 0;
+    const isLast  = i === data.path.length - 1;
+    const tag     = isFirst ? 'Origen' : isLast ? 'Destino' : 'Parada intermedia';
+
+    const stop = document.createElement('div');
+    stop.className = 'path-stop';
+
+    const icon = document.createElement('div');
+    icon.className = 'stop-icon';
+    const dot = document.createElement('div');
+    dot.className = `stop-dot ${isFirst ? 'first' : isLast ? 'last' : ''}`;
+    icon.appendChild(dot);
+    if (!isLast) {
+      const line = document.createElement('div');
+      line.className = 'stop-line';
+      icon.appendChild(line);
+    }
+
+    const info = document.createElement('div');
+    info.innerHTML = `<div class="stop-name">${city}</div><div class="stop-tag">${tag}</div>`;
+
+    stop.appendChild(icon);
+    stop.appendChild(info);
+    container.appendChild(stop);
+  });
+
+  document.getElementById('result-card').style.display = 'block';
+}
+
+// ─── Submit handler ───────────────────────────────────────────────────────────
+document.getElementById('submit-btn').addEventListener('click', async () => {
+  const origin = originInput.value.trim();
+  const dest   = destInput.value.trim();
+
+  document.getElementById('error-box').style.display = 'none';
+  document.getElementById('result-card').style.display = 'none';
+
+  const btn = document.getElementById('submit-btn');
+  btn.classList.add('loading');
+
+  try {
+    const res = await fetch('/api/route', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ origin, destination: dest })
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      const errBox = document.getElementById('error-box');
+      errBox.textContent = data.error || 'Error al calcular la ruta.';
+      errBox.style.display = 'block';
+    } else {
+      drawRoute(data);
+      renderCard(data);
+    }
+  } catch(e) {
+    const errBox = document.getElementById('error-box');
+    errBox.textContent = 'No se pudo conectar con el servidor.';
+    errBox.style.display = 'block';
+  } finally {
+    btn.classList.remove('loading');
+  }
+});
+
+// Allow Enter key on inputs
+[originInput, destInput].forEach(inp => {
+  inp.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !document.querySelector('.suggestions.open')) {
+      document.getElementById('submit-btn').click();
+    }
+  });
+});
+</script>
+</body>
+</html>
